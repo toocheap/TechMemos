@@ -6,7 +6,7 @@
 ## 同期と非同期
 
 - node.jsではノン・ブロッキング処理が基本。イベントドリブンかつシングルスレッドで動作する。そのためレースコンディションとは無縁。
-- 関数の返り値などはコールバック関数を渡し呼び出しチェーンを作るか、返り値を複数にしたい場合はEventEmitterを継承する。
+- 関数の返り値などはコールバック関数を渡し呼び出しチェーンを作るか、返り値を複数にしたい場合はEventEmitterを継承しイベントベースにする。
 - 処理実行中は設定されたイベントごとにリスナーが呼び出される。
 - 非同期なので処理の順序は保証されないことに注意。関数を呼び出すときにそれはブロックするかブロックしないかを気にすること。
 - これらのイベントは EventEmitterを継承することで処理される。
@@ -38,10 +38,84 @@
 ####同期型の例
 
 	var fs = require('fs');
-	fs.unlinkSync('/tmp/hello');
-	console.log('successfully deleted /tmp/hello');
-	stats = fs.statSync('/tmp/world');
-	console.log('stats: ' + JSON.stringify(stats));
+	try {
+		fs.unlinkSync('/tmp/hello');
+		console.log('successfully deleted /tmp/hello');
+		stats = fs.statSync('/tmp/world');
+		console.log('stats: ' + JSON.stringify(stats));
+	} catch(err) {
+		// エラー処理
+	}
+
+####イベントリスナー型の例
+
+	var server = server.createServer()
+	server.on('data', function() {
+		// data イベントの処理
+	});
+	server.on('error', function() {
+		// error イベントの処理
+	});
+
+### 非同期スタイルの問題
+
+コールバックのチェーンをつないでいくと、どんどんとネストも深くなるし、エラー処理も毎回書くことになり非常に煩雑になる。
+
+	var f = function x();
+	var g = function y(x);
+	var h = function z(y);
+
+	f(function(err, x) {
+		if (err) throw err;				// エラー処理
+		g(function(err, y) {
+			if (err) throw err;			// エラー処理
+			h(function(err, z) {
+				if (err) throw err;		// エラー処理
+				// blah blah
+			});
+		});
+	});
+
+こういった場合はフロー制御モジュールを使って、フローを制御するのが良い。フロー制御モジュールには引数の与え方や結果の収集方法、フロー自体の流れによって、制御方法が異なるためそれぞれにメソッドが用意されている。
+
+	// フローコントロールの例。chain()は無名関数の実行結果を次の関数の引数と与えながら順番に処理をする。
+	function chain() {
+		var actors = Array.prototype.slice.call(arguments);
+		next();
+
+		function next(err) {
+			if(err) {
+				// call last actor if error had occured.
+				return actors.pop()(err);
+			}
+			var actor = actors.shift();
+			var args = Array.prototype.slice.call(arguments);
+			// last actor doesn't need to call next()
+			if (actors.length > 0) {
+				args = args.slice(1).concat(next); // err doesn't pass to last actor.
+			}
+			actor.apply(null, args);
+		}
+	}
+
+	function toUpperCaseFile3(path) {
+		chain(function(next){
+			fs.stat(path, next);
+		}, function(stats, next) {
+			if(!stats.isFile()) return next(path + " is not file.");
+			fs.readFile(path, 'utf-8', next);
+		}, function(data, next) {
+			fs.writeFile(path + ".upper3", data.toUpperCase(), next);
+		}, function(err) {
+			if (err) console.error(err);
+			console.log("Completed.");
+		});
+	}
+
+
+フロー制御モジュールとしてはasyncモジュールがよく使われているようだ。
+
+
 
 ## ファイル
 
@@ -186,6 +260,21 @@ process.chdir()をつかう。
 	Hello node.js
 	> console.log("%s", "aaaa")
 	aaaa
+
+###数値操作
+
+#### n進数へ変換
+
+数値.toString(基数)を使う。
+
+	> (65535).toString(16)
+	'ffff'
+	> (65535).toString(2)
+	'1111111111111111'
+	> (65535).toString(8)
+	'177777'
+	> (65535).toString(16)
+	'ffff'
 
 ###文字列操作
 
@@ -637,6 +726,7 @@ object.__proto__は、そのobjectの継承元を指しており、代入する�
 	Object.getPrototypeOf(fuga) === bar
 	true
 
+
 キーの取得は、Object.keys()をつかう。
 
 	> Object.keys(oa)
@@ -720,6 +810,24 @@ argumentsは仮引数の数とは全く関係ない模様。
 	> function showArgs(a,b,c,d) { console.log(arguments) }
 	> showArgs(1,2,3,4,5,6,7)
 	{ '0': 1, '1': 2, '2': 3, '3': 4, '4': 5, '5': 6, '6': 7 }
+
+argumentsはオブジェクトなので、配列のようには扱えない。この場合には以下のイディオムを使うと配列になる。
+Array.prototype.slice.call(arguments)をつかって、関数オブジェクトをprototypeで取り出し、argumentsオブジェクトのコンテキストで実行させる。
+
+	var scream = function() {
+		console.log(arguments);
+		console.log(Array.prototype.slice.call(arguments));
+	};
+	scream('aaa', 'bbb', 'ccc');
+
+実行結果
+
+	$ node arguments.js
+	{ '0': 'aaa', '1': 'bbb', '2': 'ccc' }		# argumentsはオブジェクト
+	[ 'aaa', 'bbb', 'ccc' ]						# 配列に変換される
+
+##### 参考
+[javascriptのapplyとcallを理解する](http://blog.craftgear.net/4f583dabe318842d78000001/title)
 
 型がないので呼び出し時に()をつけて呼び出せば関数になる？
 
@@ -988,14 +1096,201 @@ Stream側のイベントで呼ぶためにブロックされない。
 	    });
 	}).listen(3000);
 
-pipeを使うとon, endなどのイベントをそれぞれ定義しなくても、ReadbleStreaam=>WritableStreamと流れるので超便利。
+Stream->Streamでデータが流せる場合は、pipeを使うとon, endなどのイベントをそれぞれ定義しなくても良いし、drainなどの処理も行なってくれる。
 
 	require('http').createServer(function(req, res) {
 	    res.writeHead(200, { 'Content-Type': 'image/jpeg' } );
 	    require('fs').createReadStream('shiba.jpg').pipe(res);
 	}).listen(3000);
 
+実際のpipe()の動作をエミュレートすると以下のとおり。
+
+
+
+### Nodeでバイナリデータを扱う方法
+
+例えば、Readableストリームで読み込んだオクテットストリームのデータをパースする、もしくは配列やオブジェクトをオクテットストリームとして書きだすには、Bufferを使用する。
+
+#### 読み書きで発生するイベント
+
+pipeでつなげてみると以下のとおりになる。
+
+	var fs = require('fs');
+
+	var rfs = fs.createReadStream("input.txt", {bufferSize:32});
+	var wfs = fs.createWriteStream("output.txt");
+
+	rfs.on('data', function(data) { console.log("r:data(" + data.length + ")" ); })
+		.on('end', function() { console.log("r:end"); })
+		.on('error', function(exception) { console.log("r:error");})
+		.on('close', function() { console.log("r:close"); })
+		.on('fd', function(fd) { console.log("r:fd"); });
+	wfs.on('drain', function() { console.log("w:drain"); })
+		.on('error', function(exception) { console.log("w:error"); })
+		.on('close', function() { console.log("w:close"); })
+		.on('pipe', function(src) { console.log("w:pipe"); });
+
+	rfs.pipe(wfs);
+
+input.txt
+
+	$ cat input.txt
+	ABCDEFGHIJKLM
+	zyxwvutsrqpon
+	1234567890
+
+実行結果
+
+	$ node stream1.js
+	w:pipe
+	r:data(32)
+	w:drain
+	r:data(7)
+	w:drain
+	r:end
+	w:close
+	r:close
+
+#### 読み書きタイミングをあわせる
+
+読み込みが早すぎて書き込みが間に合わない、など読み込みと書き込みも同期して行われるわけではない。
+こういう場合には読み込み側で一時読み込みを停止する必要がある。書き込み側の用意が整えばイベントが発生するので、再度読み込みを再開する。
+
+
+
+##### 参考
+- [SPDY draft v3](http://www.chromium.org/spdy/spdy-protocol/spdy-protocol-draft3)
+- [Node.js で Hello SPDY を作る](http://d.hatena.ne.jp/jovi0608/20120517/1337235058)
+- [hello_spdy.js](https://gist.github.com/2716248)
+- [Node Streams: How do they work?](http://maxogden.com/node-streams)
+
+読み込みの例。SPDYのデータフレームの読み込み。
+bufにはプロトコルヘッダを含む生データが含まれている。実際にぱーすするデータフレームの構造は以下のとおり。
+
+	+----------------------------------+
+	|C| Version(15bits) | Type(16bits) |
+	+----------------------------------+
+	| Flags (8)  |  Length (24 bits)   |
+	+----------------------------------+
+	|               Data               |
+	+----------------------------------+
+
+Cは Control フレームかデータフレームかを示すフラグ(1bit)。switch文以降ではDataの中身が変わるためそれぞれに応じて読み方を変えている。最後にbufのデータ部分をinflateNV()でzlibを使ってデコードしている。
+
+	SPDYStream.prototype.parse = function(buf) {
+	  if (this.control) {
+	    this.version = buf.readUInt16BE(0) & 0x7fff;
+	  } else {
+	    this.streamid = buf.readUInt32BE(0) & 0x7ffffffff;
+	  }
+	  this.flags = buf.readUInt8(4);
+	  this.length = buf.readUInt32BE(4) & 0x00ffffff;
+	  switch (this.type) {
+	  case 1: // SYN_STREAM
+	    this.streamid = buf.readUInt32BE(8) & 0x7ffffffff;
+	    this.astreamid = buf.readUInt32BE(12) & 0x7ffffffff;
+	    this.pri = buf.readUInt8(16) >> 6;
+	    this.slot = buf.readUInt8(16);
+	    this.inflateNV(buf.slice(18));
+	    break;
+	  case 2: // SYN_REPLY
+	    this.streamid = buf.readUInt32BE(8) & 0x7ffffffff;
+	    this.inflateNV(buf.slice(12));
+	    break;
+	  }
+	};
+
+書き込みの例。逆にSPDYのデータフレーム生成の例。
+
+	SPDYStream.prototype.getFrameBuffer = function() {
+	  this.setLength();
+	  var buf = new Buffer(this.length + 8);
+	  var offset = 0;
+	  var flag = (this.flags << 24) >>> 0;
+	  if (this.control) {
+	    var control = (0x01 << 15) >>> 0;
+	    buf.writeUInt16BE(control | this.version, offset);
+	    offset += 2;
+	    buf.writeUInt16BE(this.type, offset);
+	    offset += 2;
+	    buf.writeUInt32BE((this.nv).length + 4, offset);
+	    offset += 4;
+	    switch (this.type) {
+	    case 1:
+	      buf.writeUInt32BE(this.streamid, offset);
+	      offset += 4;
+	      var pri = (this.pri << 13) >>> 0;
+	      buf.writeUint16BE(pri | this.slot, offset);
+	      offset += 2;
+	      (this.nv).copy(buf, offset);
+	      break;
+	    case 2:
+	      buf.writeUInt32BE(this.streamid & 0x7fffffff, offset);
+	      offset += 4;
+	      (this.nv).copy(buf, offset, 0, (this.nv).length);
+	      break;
+	    }
+	  } else {
+	    var streamid = this.streamid & 0x7fffffff;
+	    buf.writeUInt32BE(streamid, offset);
+	    offset += 4;
+	    buf.writeUInt32BE(flag | this.length, offset);
+	    offset += 4;
+	    buf.write(this.data, offset);
+	  }
+	  return buf;
+	};
+
+ビットシフトがややこしいけれど、これは単に特定の場所のビットをセットするための方法。
+例の場合、Controlは0x01を左へ15bitシフトしている。(数値.toString(2)は2進数へ変換する)
+これによってビット上は15個の0を後ろに追加したこととなる。つまり最下位bitにControlを1bitで設定することになる。
+
+	> 0x01.toString(2)
+	'1'
+	> (0x01 << 15).toString(2)
+	'1000000000000000'
+
+streamidには & 0x7fffffff でANDをとっているが、ANDは元のビットに対してマスクする(AND演算では両方のビットが同じであれば1になる、つまり1を立てたところは1しか通らないし、0のところは0しか通らない。)。
+7fは16bitで最下位ビットだけが0な数字であり、符号を表す最下位ビットを*必ず*0にし以降のbitに変化はないこととなる。streamidは32bit符号なし整数なので、これによってかならず符号なし整数へと変更している（と思われる）
+
+>>>は符号なしビットシフト演算子で、"">>>0"は意味が無いように見えるが、これは符号なしビットシフトをするためのイディオム。
+
+ハマりどころとして、Javascriptのビットシフト演算子は、算術シフト(符号付き)であることに注意。
+
+	> 1 << 30
+	1073741824
+	> 1 << 31
+	-2147483648
+	> (1 << 30) >>> 0
+	1073741824
+	> (1 << 31) >>> 0
+	2147483648
+
+
+
+##### 参考
+
+[Buffer](http://nodejs.jp/nodejs.org_ja/docs/v0.8/api/buffer.html)
+
 ##### 参考
 - [Stream 公式ライブラリドキュメント](http://nodejs.jp/nodejs.org_ja/docs/v0.8/api/stream.html)
 - [Stream Stream Stream](http://jxck.node-ninja.com/slides/nodeacademy7.html)
 - [Stream-Handbook](https://github.com/substack/stream-handbook)
+
+
+
+
+よくある以下のコードは???
+
+	aaa.__proto__ = xxx.prototype
+
+	process.nextTick(function(){
+		done(null, results);		#どうもエラーと結果を次のコールバックに送っているようにみえる
+	})
+
+### nvmのインストール
+
+versionマネージャ nvmのインストール
+
+$ curl https://raw.github.com/creationix/nvm/master/install.sh | sh
+
