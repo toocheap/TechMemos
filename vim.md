@@ -669,4 +669,24 @@ backupdirなどのオプションの値を変数として取り出したい場�
 
 で表示される。
 
+## tmuxつかっているときにコピペが変になる
+
+tmux使っているときだけの問題。
+
+(http://qiita.com/items/bea95b1bc6e6ca8a495b)
+
+    Macのtmux内で clipboard+=unnamed な Vim でヤンク・コピーをすると E353: Nothing in register * というエラーが出る。これはMacでtmuxを使うとpbcopy, pbpasteが使えない問題の余波によるものらしい。
+
+ということなので、以下のURLの通りに対処。
+
+(http://www.tokoro.me/2012/12/31/mac-terminal-japanese/)
+
+reattach-to-user-namespace をbrewでインストールして、tmux側に以下の設定を追加
+
+    set-option -g default-command "reattach-to-user-namespace -l bash"
+
+オリジナルはzshを指定しているけど、bashでも動いた。
+あとは、[fakeclip](https://github.com/kana/vim-fakeclip)をインストールすると幸せ。
+
+
 
