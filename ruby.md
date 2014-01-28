@@ -423,4 +423,14 @@ gettextだけ残っているけれどこれはもう一度やると消えた。
     Removing: /usr/local/Cellar/gettext/0.18.1.1...
     Pruned 0 dead formula
 
+= Windowsで、Devkitインストール時のruby dk.rb installでエラーが出る
+
+        PS C:\devkit> ruby .\dk.rb install
+        Invalid configuration or no Rubies listed. Please fix 'config.yml'
+
+dk.rb initはconfig.ymlにレジストリを見てRubyのパスを追加する。mswin32版インストーラではレジストリにパスを書かないので、手動でconfig.ymlに追加する必要がある。YAML形式なのでprefixに-をつけるのを忘れないように。
+
+        #
+        ---
+        - C:/Ruby200-x64
 
